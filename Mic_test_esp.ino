@@ -2,9 +2,19 @@
 #include <driver/i2s.h>
  
 // Connections to INMP441 I2S microphone
-#define I2S_WS 15
-#define I2S_SD 13
+#define I2S_WS  15
 #define I2S_SCK 2
+// #define I2S_SD  27
+#define I2S_SD  13
+
+// #define I2S_WS_0 15
+// #define I2S_SD_0 13
+// #define I2S_SCK_0 2
+
+// // I2S1 (Stereo: Mics 3 & 4)
+// #define I2S_SCK_1  12
+// #define I2S_WS_1   33
+// #define I2S_SD_1   27
  
 // Use I2S Processor 0
 #define I2S_PORT I2S_NUM_0
@@ -79,8 +89,11 @@ void loop() {
     int16_t samples_read = bytesIn / 8;
     if (samples_read > 0) {
       float mean = 0;
+      // float sample = 0;
       for (int16_t i = 0; i < samples_read; ++i) {
         mean += (sBuffer[i]);
+        // sample = (sBuffer[i]);
+        // Serial.println(sample);
       }
  
       // Average the data reading
