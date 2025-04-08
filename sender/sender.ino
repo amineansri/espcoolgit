@@ -142,8 +142,8 @@ void captureAndStream() {
   size_t bytesRead0, bytesRead1;
 
   // Read from both I2S peripherals (blocking)
-  esp_err_t err0 = i2s_read(I2S_NUM_0, buffer0, BUFFER_SIZE, &bytesRead0, portMAX_DELAY);
-  esp_err_t err1 = i2s_read(I2S_NUM_1, buffer1, BUFFER_SIZE, &bytesRead1, portMAX_DELAY);
+  esp_err_t err0 = i2s_read(I2S_NUM_0, buffer0, sizeof(buffer0), &bytesRead0, portMAX_DELAY);
+  esp_err_t err1 = i2s_read(I2S_NUM_1, buffer1, sizeof(buffer1), &bytesRead1, portMAX_DELAY);
    if (err0 != ESP_OK || err1 != ESP_OK || bytesRead0 != BUFFER_SIZE || bytesRead1 != BUFFER_SIZE) {
     Serial.println("I2S Read Error!");
     return;
