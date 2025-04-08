@@ -1,53 +1,31 @@
-#include "DisplayHandler.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Arduino.h>
 
-// Call this before using display
-void DisplayHandler::init() {
-    display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
-    display.clearDisplay();
-    display.display();
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
 
-    center.x = SCREEN_WIDTH / 2;
-    center.y = SCREEN_HEIGHT / 2;
+#define OLED_RESET     -1
+#define SCREEN_ADDRESS 0x3C
 
-    display.drawPixel(0, 0, WHITE);
-    display.display();
-    delay(1000);
-}
+class Point {
+public:
+    float x;
+    float y;
+};
 
-// Direction [integer between 0 and 8, 0 is off, 1 is forward, then clockwise up to 8]
-void DisplayHandler::update(int direction) {
-    if (direction == 0 && hold_counter < hold_time) {
-        hold_counter++;
-    }
-    else {
-        hold_counter = 0;
-        display.clearDisplay();
+class DisplayHandler {
+public:
+    void init();
+    void update(int direction);
+    void updateWithIntensities(float* intensities);
 
-        for (int i = 7; i >= 0; i--) {
-            drawIndicator(15, 4, 2 * PI / 8 * i - PI / 2, ((direction - 1) == i) * 10);
-        }
-        display.display();
-    }
-}
+private:
+    Point center;
+    Adafruit_SSD1306 display = Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Intensities [intensities is float[8], sets bar i at intensities[i] ]
-void DisplayHandler::updateWithIntensities(float* intensities) {
-    display.clearDisplay();
-    for (uint8_t i = 0; i < 8; i++) {
-        drawIndicator(15, 4, 2 * PI / 8 * i, intensities[i]);
-    }
-    display.display();
-}
+    void drawIndicator(int d, int l, float theta, float x);
 
-void DisplayHandler::drawIndicator(int d, int l, float theta, float x) {
-    for (float dd = d; dd <= d + x; dd += 0.1) {
-        Point PA, PB;
-        PA.x = center.x + cos(theta) * dd - sin(theta) * l;
-        PA.y = center.y + sin(theta) * dd + cos(theta) * l;
-
-        PB.x = center.x + cos(theta) * dd + sin(theta) * l;
-        PB.y = center.y + sin(theta) * dd - cos(theta) * l;
-
-        display.drawLine(PA.x, PA.y, PB.x, PB.y, WHITE);
-    }
-}
+    int hold_counter = 0;
+    const int hold_time = 5;
+};
