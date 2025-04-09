@@ -28,8 +28,9 @@
 
 
 #define SAMPLE_RATE     16000     // 16kHz bandwidth
-#define BUFFER_SIZE     120      // Must be multiple of 6 (24b stereo frame)
-#define SAMPLES_PER_PACKET (BUFFER_SIZE / 6 * 4) // Total samples per UDP packet
+#define SAMPLES_PER_PACKET 120
+#define MIC_BYTES_PER_PACKET SAMPLES_PER_PACKET*3
+#define BUFFER_SIZE     MIC_BYTES_PER_PACKET*2      // Must be multiple of 6 (24b stereo frame)
 
 // ====== WiFi Configuration ======
 const char* ssid = "CaptionGlasses";
@@ -186,13 +187,13 @@ void captureAndStream() {
   data_send += BUFFER_SIZE * 2;
   udp.endPacket();
 
-  for (int i = 0; i < BUFFER_SIZE / 8; i += 3) {
-    int32_t m1 = (micBuffers[0][i+2] << 16 |  micBuffers[0][i+1] << 8 | micBuffers[0][i]) | (micBuffers[0][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-    int32_t m2 = (micBuffers[1][i+2] << 16 |  micBuffers[1][i+1] << 8 | micBuffers[1][i]) | (micBuffers[1][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-    int32_t m3 = (micBuffers[2][i+2] << 16 |  micBuffers[2][i+1] << 8 | micBuffers[2][i]) | (micBuffers[2][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-    int32_t m4 = (micBuffers[3][i+2] << 16 |  micBuffers[3][i+1] << 8 | micBuffers[3][i]) | (micBuffers[3][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-    Serial.printf("%d\t%d\t%d\t%d\n", m1, m2, m3, m4);
-  }
+  // for (int i = 0; i < BUFFER_SIZE / 8; i += 3) {
+  //   int32_t m1 = (micBuffers[0][i+2] << 16 |  micBuffers[0][i+1] << 8 | micBuffers[0][i]) | (micBuffers[0][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+  //   int32_t m2 = (micBuffers[1][i+2] << 16 |  micBuffers[1][i+1] << 8 | micBuffers[1][i]) | (micBuffers[1][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+  //   int32_t m3 = (micBuffers[2][i+2] << 16 |  micBuffers[2][i+1] << 8 | micBuffers[2][i]) | (micBuffers[2][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+  //   int32_t m4 = (micBuffers[3][i+2] << 16 |  micBuffers[3][i+1] << 8 | micBuffers[3][i]) | (micBuffers[3][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+  //   Serial.printf("%d\t%d\t%d\t%d\n", m1, m2, m3, m4);
+  // }
 }
 
 // ====== Main Program ======
@@ -210,8 +211,8 @@ void loop() {
   unsigned long int timediff = (millis() - timeddd) / 1000;
   if (timediff >= 1){
     data_send = 8*data_send;
-    // Serial.print("Data send in 1 sec: ");
-    // Serial.println(data_send);
+    Serial.print("Data send in 1 sec: ");
+    Serial.println(data_send);
     data_send = 0;
     timeddd = millis();
   }
