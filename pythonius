@@ -1,0 +1,37 @@
+# Plot settings
+N_SAMPLES = 120  # number of samples per mic (from each UDP packet)
+x = np.arange(N_SAMPLES)
+
+fig, axs = plt.subplots(4, 1, figsize=(10, 6), sharex=True)
+lines = [ax.plot(x, np.zeros(N_SAMPLES))[0] for ax in axs]
+[ax.set_ylabel(f"Mic {i+1}") for i, ax in enumerate(axs)]
+axs[-1].set_xlabel("Sample index")
+plt.ion()
+plt.show()
+
+print(f"Listening on UDP port {UDP_PORT}...")
+
+while True:
+    data, _ = sock.recvfrom(1449)
+    if data[:4] != b'AUDI':
+        continue
+
+    mic_data = data[5:]  # skip 'AUDI' + seq byte
+    mic_buffers = [[], [], [], []]
+
+    offset = 0
+    for mic_idx in range(4):
+        mic_id = mic_data[offset]
+        samples = mic_data[offset+1 : offset+361]
+        offset += 361
+        for i in range(0, len(samples), 3):
+            b0, b1, b2 = samples[i], samples[i+1], samples[i+2]
+            mic_buffers[mic_idx].append(parse_signed_24bit_sample(b0, b1, b2))
+
+    # Update plots
+    for i in range(4):
+        lines[i].set_ydata(mic_buffers[i])
+        axs[i].relim()
+        axs[i].autoscale_view()
+
+    plt.pause(0.001)  # Allow the plot to update
