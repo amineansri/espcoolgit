@@ -32,7 +32,7 @@ buffer<float, SIZE> bufferBR;
 
 const float Fs_mic = 40000;
 const float Fs_output = 1000;
-const int sample_swing = 40000*0.0015; //Change this when changing Fs_mic
+const int sample_swing = Fs_mic*0.0015; //Change this when changing Fs_mic
 float cross_correlation_buffer[2*sample_swing-1];
 int prev_time = 0;
 
