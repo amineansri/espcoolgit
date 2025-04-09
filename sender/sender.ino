@@ -27,8 +27,8 @@
 // #define I2S_SD_1   13
 
 
-#define SAMPLE_RATE     32000     // 16kHz bandwidth
-#define BUFFER_SIZE     90      // Must be multiple of 6 (24b stereo frame)
+#define SAMPLE_RATE     16000     // 16kHz bandwidth
+#define BUFFER_SIZE     120      // Must be multiple of 6 (24b stereo frame)
 #define SAMPLES_PER_PACKET (BUFFER_SIZE / 6 * 4) // Total samples per UDP packet
 
 // ====== WiFi Configuration ======
@@ -37,11 +37,12 @@ const char* password = "12345678";
 WiFiUDP udp;
 const char* laptop_ip = "192.168.4.2";
 const uint16_t udp_port = 3333;
+static uint8_t seq = 0;
 
 // Buffers
-uint32_t buffer0[BUFFER_SIZE];  // I2S0 (Mics 1 & 2)
-uint32_t buffer1[BUFFER_SIZE];  // I2S1 (Mics 3 & 4)
-uint8_t micBuffers[4][BUFFER_SIZE * 3 / 2];  // Split buffers for each mic
+int32_t buffer0[BUFFER_SIZE];  // I2S0 (Mics 1 & 2)
+int32_t buffer1[BUFFER_SIZE];  // I2S1 (Mics 3 & 4)
+uint8_t micBuffers[4][BUFFER_SIZE / 8];  // Split buffers for each mic
 
 // ====== Data and time variables ======
 int data_send = 0;
@@ -54,7 +55,7 @@ void setupI2S() {
     .bits_per_sample = I2S_BITS_PER_SAMPLE_24BIT,  // 24-bit mode
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // Stereo
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 8,        // More buffers for stability
+    .dma_buf_count = 4,        // More buffers for stability
     .dma_buf_len = BUFFER_SIZE,        // Smaller buffers for lower latency
     .use_apll = false           // Better clock stability
   };
@@ -65,7 +66,7 @@ void setupI2S() {
     .bits_per_sample = I2S_BITS_PER_SAMPLE_24BIT,  // 24-bit mode
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // Stereo
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 8,        // More buffers for stability
+    .dma_buf_count = 4,        // More buffers for stability
     .dma_buf_len = BUFFER_SIZE,        // Smaller buffers for lower latency
     .use_apll = false           // Better clock stability.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
   };
@@ -106,58 +107,74 @@ void setupUDP() {
   Serial.println("[UDP] UDP Started");
 }
 
-void splitBuffer(const uint32_t* stereoBuffer, uint8_t* left, uint8_t* right) {
-    size_t leftIndex = 0;
-    size_t rightIndex = 0;
-
-    for (size_t i = 0; i < BUFFER_SIZE/6; ++i) {
-        uint32_t sample = stereoBuffer[i];
-        Serial.printf("%d\n", sample);
-
-        // Extract 24-bit value: byte0 = LSB, byte1 = mid, byte2 = MSB
-        uint8_t byte0 = (sample >>  0) & 0xFF;
-        uint8_t byte1 = (sample >>  8) & 0xFF;
-        uint8_t byte2 = (sample >> 16) & 0xFF;
-
-        if (i % 2 == 0) {
-            // Even index -> Left channel
-            left[leftIndex++] = byte0;
-            left[leftIndex++] = byte1;
-            left[leftIndex++] = byte2;
-        } else {
-            // Odd index -> Right channel
-            right[rightIndex++] = byte0;
-            right[rightIndex++] = byte1;
-            right[rightIndex++] = byte2;
-        }
-
-        // Debug output
-        // Serial.printf("Sample %02zu: %#010x -> [%02x %02x %02x] => %s\n",
-            // i, sample, byte2, byte1, byte0, (i % 2 == 0) ? "Left" : "Right");
+void splitBuffer(const int32_t* stereoBuffer, uint8_t* left, uint8_t* right, int numsamples) {
+    for (size_t i = 0; i < numsamples; i += 2) {
+      size_t j = 3*(i/2);
+      left[j    ] = (stereoBuffer[i] >> 8) & 0xFF;
+      left[j + 1] = (stereoBuffer[i] >> 16) & 0xFF;
+      left[j + 2] = (stereoBuffer[i] >> 24) & 0xFF;
+      right[j    ] = (stereoBuffer[i + 1] >> 8) & 0xFF;
+      right[j + 1] = (stereoBuffer[i + 1] >> 16) & 0xFF;
+      right[j + 2] = (stereoBuffer[i + 1] >> 24) & 0xFF;
     }
-    // Serial.printf("l: %d, r: %d", leftIndex, rightIndex);
 }
 
 void captureAndStream() {
   size_t bytesRead0, bytesRead1;
 
   // Read from both I2S peripherals (blocking)
-  esp_err_t err0 = i2s_read(I2S_NUM_0, buffer0, sizeof(buffer0), &bytesRead0, portMAX_DELAY);
-  esp_err_t err1 = i2s_read(I2S_NUM_1, buffer1, sizeof(buffer1), &bytesRead1, portMAX_DELAY);
+  esp_err_t err0 = i2s_read(I2S_NUM_0, buffer0, BUFFER_SIZE, &bytesRead0, portMAX_DELAY);
+  esp_err_t err1 = i2s_read(I2S_NUM_1, buffer1, BUFFER_SIZE, &bytesRead1, portMAX_DELAY);
    if (err0 != ESP_OK || err1 != ESP_OK || bytesRead0 != BUFFER_SIZE || bytesRead1 != BUFFER_SIZE) {
     Serial.println("I2S Read Error!");
     return;
   }
 
+  //   int numSamples = bytesRead0 / sizeof(int32_t);
+
+  // for (int i = 0; i < numSamples; i += 2) {
+  //   uint8_t m1 = (buffer0[i] >> 8) & 0xFF;
+  //   uint8_t m2 = (buffer0[i] >> 16) & 0xFF;
+  //   uint8_t m3 = (buffer0[i] >> 24) & 0xFF;
+  //   int32_t m4 = (m3 << 16 | m2 << 8 | m1) | (m3 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+
+
+  //   uint8_t m11 = (buffer0[i + 1] >> 8) & 0xFF;
+  //   uint8_t m12 = (buffer0[i + 1] >> 16) & 0xFF;
+  //   uint8_t m13 = (buffer0[i + 1] >> 24) & 0xFF;
+  //   int32_t m14 = (m13 << 16 | m12 << 8 | m11) | (m13 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+  
+
+
+  //   uint8_t m21 = (buffer1[i] >> 8) & 0xFF;
+  //   uint8_t m22 = (buffer1[i] >> 16) & 0xFF;
+  //   uint8_t m23 = (buffer1[i] >> 24) & 0xFF;
+  //   int32_t m24 = (m23 << 16 | m22 << 8 | m21) | (m23 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+
+
+  //   uint8_t m31 = (buffer1[i + 1] >> 8) & 0xFF;
+  //   uint8_t m32 = (buffer1[i + 1] >> 16) & 0xFF;
+  //   uint8_t m33 = (buffer1[i + 1] >> 24) & 0xFF;
+  //   int32_t m34 = (m33 << 16 | m32 << 8 | m31) | (m33 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+
+
+  //   // int32_t m2 = buffer0[i + 1] >> 8;
+  //   // int32_t m3 = buffer1[i] >> 8;
+  //   // int32_t m4 = buffer1[i + 1] >> 8;
+
+  //   // Serial.printf("%d\t%d\t%d\t%d\n", m1, m2, m3 ,m4);
+  //   // Serial.printf("0x%08x\t0x%02x\t%d\t%d\t0x%08x\t0x%02x\n", m1, m2, m1, m2, m3 ,m4);
+  //   // Serial.printf("0x%02x\t0x%02x\t0x%02x\t0x%08x\t%d\t%d\n", m1, m2, m3, m4, m4, buffer0[i] >> 8);
+  //   Serial.printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n", m4, buffer0[i] >> 8, m14, buffer0[i + 1] >> 8, m24, buffer1[i] >> 8, m34, buffer1[i + 1] >> 8);
+  // }
 
   // Split stereo buffers into individual mic streams
-  splitBuffer(buffer0, micBuffers[0], micBuffers[1]);  // Mics 1 & 2
-  splitBuffer(buffer1, micBuffers[2], micBuffers[3]);  // Mics 3 & 4
+  splitBuffer(buffer0, micBuffers[0], micBuffers[1], bytesRead0 / sizeof(int32_t));  // Mics 1 & 2
+  splitBuffer(buffer1, micBuffers[2], micBuffers[3] ,bytesRead1 / sizeof(int32_t));  // Mics 3 & 4
 
   // Send via UDP
   udp.beginPacket(laptop_ip, udp_port);
   udp.write((const uint8_t*)"AUDI", 4);  // Header
-  static uint8_t seq = 0;
   udp.write(seq++);  // Sequence number
 
   // Send all 4 mics' data (fixed size: 360 bytes each)
@@ -168,9 +185,14 @@ void captureAndStream() {
   }
   data_send += BUFFER_SIZE * 2;
   udp.endPacket();
-  // for (int i = 0; i < BUFFER_SIZE / 2; i++) {
-  //   Serial.printf("%ld\t%ld\t%ld\t%ld\n", micBuffers[0][i], micBuffers[1][i], micBuffers[2][i], micBuffers[3][i]);
-  // }
+
+  for (int i = 0; i < BUFFER_SIZE / 8; i += 3) {
+    int32_t m1 = (micBuffers[0][i+2] << 16 |  micBuffers[0][i+1] << 8 | micBuffers[0][i]) | (micBuffers[0][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+    int32_t m2 = (micBuffers[1][i+2] << 16 |  micBuffers[1][i+1] << 8 | micBuffers[1][i]) | (micBuffers[1][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+    int32_t m3 = (micBuffers[2][i+2] << 16 |  micBuffers[2][i+1] << 8 | micBuffers[2][i]) | (micBuffers[2][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+    int32_t m4 = (micBuffers[3][i+2] << 16 |  micBuffers[3][i+1] << 8 | micBuffers[3][i]) | (micBuffers[3][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
+    Serial.printf("%d\t%d\t%d\t%d\n", m1, m2, m3, m4);
+  }
 }
 
 // ====== Main Program ======
@@ -188,8 +210,8 @@ void loop() {
   unsigned long int timediff = (millis() - timeddd) / 1000;
   if (timediff >= 1){
     data_send = 8*data_send;
-    Serial.print("Data send in 1 sec: ");
-    Serial.println(data_send);
+    // Serial.print("Data send in 1 sec: ");
+    // Serial.println(data_send);
     data_send = 0;
     timeddd = millis();
   }
