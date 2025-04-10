@@ -12,8 +12,9 @@ public:
     // Constants
     const double SPEED_OF_SOUND = 343.0; // m/s
     const double MIC_DISTANCE = 0.04;    // 4 cm between mics
+    double angle = 0;
     int sampleRate = 32000;
-    double angle = 0.0;
+    int filter_length = 5;
 
     Beamformer(int sampleRate, double angle) :
         sampleRate(sampleRate), 
