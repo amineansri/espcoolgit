@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
+// Square microphones
 // ====== I2S Configuration ======
 // I2S0 (Stereo: Mics 1 & 2)
 #define I2S_SCK_0  32
@@ -15,6 +16,7 @@
 #define I2S_SD_1   5
 
 
+// Round microphones
 // ====== I2S Configuration ======
 // I2S0 (Stereo: Mics 1 & 2)
 // #define I2S_SCK_0  2
@@ -30,7 +32,7 @@
 #define SAMPLE_RATE     16000     // 16kHz bandwidth
 #define SAMPLES_PER_PACKET 120
 #define MIC_BYTES_PER_PACKET SAMPLES_PER_PACKET*3
-#define BUFFER_SIZE     MIC_BYTES_PER_PACKET*2      // Must be multiple of 6 (24b stereo frame)
+#define BUFFER_SIZE     SAMPLES_PER_PACKET*8      // Must be multiple of 6 (24b stereo frame)
 
 // ====== WiFi Configuration ======
 const char* ssid = "CaptionGlasses";
@@ -43,7 +45,7 @@ static uint8_t seq = 0;
 // Buffers
 int32_t buffer0[BUFFER_SIZE];  // I2S0 (Mics 1 & 2)
 int32_t buffer1[BUFFER_SIZE];  // I2S1 (Mics 3 & 4)
-uint8_t micBuffers[4][SAMPLES_PER_PACKET];  // Split buffers for each mic
+uint8_t micBuffers[4][MIC_BYTES_PER_PACKET];  // Split buffers for each mic
 
 // ====== Data and time variables ======
 int data_send = 0;
@@ -131,44 +133,6 @@ void captureAndStream() {
     return;
   }
 
-  //   int numSamples = bytesRead0 / sizeof(int32_t);
-
-  // for (int i = 0; i < numSamples; i += 2) {
-  //   uint8_t m1 = (buffer0[i] >> 8) & 0xFF;
-  //   uint8_t m2 = (buffer0[i] >> 16) & 0xFF;
-  //   uint8_t m3 = (buffer0[i] >> 24) & 0xFF;
-  //   int32_t m4 = (m3 << 16 | m2 << 8 | m1) | (m3 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-
-
-  //   uint8_t m11 = (buffer0[i + 1] >> 8) & 0xFF;
-  //   uint8_t m12 = (buffer0[i + 1] >> 16) & 0xFF;
-  //   uint8_t m13 = (buffer0[i + 1] >> 24) & 0xFF;
-  //   int32_t m14 = (m13 << 16 | m12 << 8 | m11) | (m13 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-  
-
-
-  //   uint8_t m21 = (buffer1[i] >> 8) & 0xFF;
-  //   uint8_t m22 = (buffer1[i] >> 16) & 0xFF;
-  //   uint8_t m23 = (buffer1[i] >> 24) & 0xFF;
-  //   int32_t m24 = (m23 << 16 | m22 << 8 | m21) | (m23 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-
-
-  //   uint8_t m31 = (buffer1[i + 1] >> 8) & 0xFF;
-  //   uint8_t m32 = (buffer1[i + 1] >> 16) & 0xFF;
-  //   uint8_t m33 = (buffer1[i + 1] >> 24) & 0xFF;
-  //   int32_t m34 = (m33 << 16 | m32 << 8 | m31) | (m33 >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
-
-
-  //   // int32_t m2 = buffer0[i + 1] >> 8;
-  //   // int32_t m3 = buffer1[i] >> 8;
-  //   // int32_t m4 = buffer1[i + 1] >> 8;
-
-  //   // Serial.printf("%d\t%d\t%d\t%d\n", m1, m2, m3 ,m4);
-  //   // Serial.printf("0x%08x\t0x%02x\t%d\t%d\t0x%08x\t0x%02x\n", m1, m2, m1, m2, m3 ,m4);
-  //   // Serial.printf("0x%02x\t0x%02x\t0x%02x\t0x%08x\t%d\t%d\n", m1, m2, m3, m4, m4, buffer0[i] >> 8);
-  //   Serial.printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n", m4, buffer0[i] >> 8, m14, buffer0[i + 1] >> 8, m24, buffer1[i] >> 8, m34, buffer1[i + 1] >> 8);
-  // }
-
   // Split stereo buffers into individual mic streams
   splitBuffer(buffer0, micBuffers[0], micBuffers[1], bytesRead0 / sizeof(int32_t));  // Mics 1 & 2
   splitBuffer(buffer1, micBuffers[2], micBuffers[3] ,bytesRead1 / sizeof(int32_t));  // Mics 3 & 4
@@ -181,18 +145,20 @@ void captureAndStream() {
   // Send all 4 mics' data (fixed size: 360 bytes each)
   for (int mic = 0; mic < 4; mic++) {
     udp.write('1' + mic);  // Mic ID ('1' to '4')
+    
 
-    udp.write(micBuffers[mic], BUFFER_SIZE / 2);
+    udp.write(micBuffers[mic], MIC_BYTES_PER_PACKET);
   }
-  data_send += BUFFER_SIZE * 2;
+  // data_send += BUFFER_SIZE * 2;
   udp.endPacket();
 
-  // for (int i = 0; i < BUFFER_SIZE / 8; i += 3) {
+  // for (int i = 0; i < MIC_BYTES_PER_PACKET; i += 3) {
   //   int32_t m1 = (micBuffers[0][i+2] << 16 |  micBuffers[0][i+1] << 8 | micBuffers[0][i]) | (micBuffers[0][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
   //   int32_t m2 = (micBuffers[1][i+2] << 16 |  micBuffers[1][i+1] << 8 | micBuffers[1][i]) | (micBuffers[1][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
   //   int32_t m3 = (micBuffers[2][i+2] << 16 |  micBuffers[2][i+1] << 8 | micBuffers[2][i]) | (micBuffers[2][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
   //   int32_t m4 = (micBuffers[3][i+2] << 16 |  micBuffers[3][i+1] << 8 | micBuffers[3][i]) | (micBuffers[3][i+2] >> 7 == 0x01 ? 0xFF000000 : 0x00000000);
   //   Serial.printf("%d\t%d\t%d\t%d\n", m1, m2, m3, m4);
+  //   // Serial.printf("0x%08x\t0x%08x\t0x%08x\t0x%08x\n", m1, m2, m3, m4);
   // }
 }
 
@@ -205,15 +171,18 @@ void setup() {
   timeddd = millis();
 }
 
+bool done = false;
 void loop() {
 
   captureAndStream();
-  unsigned long int timediff = (millis() - timeddd) / 1000;
-  if (timediff >= 1){
-    data_send = 8*data_send;
-    Serial.print("Data send in 1 sec: ");
-    Serial.println(data_send);
-    data_send = 0;
-    timeddd = millis();
-  }
+  // unsigned long int timediff = (millis() - timeddd) / 1000;
+  // if (timediff >= 3 && !done){
+  //   done = true;
+  //   captureAndStream();
+  //   // data_send = data_send;
+    // Serial.print("Data send in 1 sec: ");
+    // Serial.println(data_send);
+    // data_send = 0;
+    // timeddd = millis();
+  // }
 }
