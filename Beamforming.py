@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 array_type = 'linear'    # 'circular' or 'linear'
 M = 4                    # Number of microphones
 steer_angle_deg = 0      # Direction to beamform to (in degrees)
-mic_spacing = 0.15      # Distance between adjacent mics (optional)
+mic_spacing = 0.08      # Distance between adjacent mics (optional)
 radius = None            # Used only for circular array, if mic_spacing not given
 
 c = 343  # Speed of sound (m/s)
-freqs = np.linspace(100, 1100, 500)  # Frequencies from 0 to 4 kHz
+freqs = np.linspace(100, 2000, 500)  # Frequencies from 0 to 4 kHz
 angles = np.arange(0, 360, 1)
 theta = np.deg2rad(angles)
 
@@ -48,7 +48,7 @@ for fi, f in enumerate(freqs):
         direction_vec = np.array([np.cos(a), np.sin(a)])
         delays = mic_positions @ direction_vec
         phase_shifts = np.exp(1j * k * (delays - steering_delays))
-        response[fi, i] = np.abs(np.sum(phase_shifts)) / M
+        response[fi, i] = np.sum(phase_shifts)
 
 # === PLOTTING ===
 response_db = 20 * np.log10(response / np.nanmax(response)) 
