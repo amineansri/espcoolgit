@@ -29,7 +29,7 @@
 // #define I2S_SD_1   13
 
 
-#define SAMPLE_RATE     16000     // 16kHz bandwidth
+#define SAMPLE_RATE     32000     // 16kHz bandwidth
 #define SAMPLES_PER_PACKET 120
 #define MIC_BYTES_PER_PACKET SAMPLES_PER_PACKET*3
 #define BUFFER_SIZE     SAMPLES_PER_PACKET*8      // Must be multiple of 6 (24b stereo frame)
@@ -149,7 +149,7 @@ void captureAndStream() {
 
     udp.write(micBuffers[mic], MIC_BYTES_PER_PACKET);
   }
-  // data_send += BUFFER_SIZE * 2;
+  data_send += 1449;
   udp.endPacket();
 
   // for (int i = 0; i < MIC_BYTES_PER_PACKET; i += 3) {
@@ -171,18 +171,14 @@ void setup() {
   timeddd = millis();
 }
 
-bool done = false;
 void loop() {
 
   captureAndStream();
-  // unsigned long int timediff = (millis() - timeddd) / 1000;
-  // if (timediff >= 3 && !done){
-  //   done = true;
-  //   captureAndStream();
-  //   // data_send = data_send;
-    // Serial.print("Data send in 1 sec: ");
-    // Serial.println(data_send);
-    // data_send = 0;
-    // timeddd = millis();
-  // }
+  unsigned long int timediff = (millis() - timeddd) / 1000;
+  if (timediff >= 1){
+    Serial.print("Data send in 1 sec: ");
+    Serial.println(data_send);
+    data_send = 0;
+    timeddd = millis();
+  }
 }
