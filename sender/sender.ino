@@ -43,7 +43,7 @@ static uint8_t seq = 0;
 // Buffers
 int32_t buffer0[BUFFER_SIZE];  // I2S0 (Mics 1 & 2)
 int32_t buffer1[BUFFER_SIZE];  // I2S1 (Mics 3 & 4)
-uint8_t micBuffers[4][BUFFER_SIZE / 8];  // Split buffers for each mic
+uint8_t micBuffers[4][SAMPLES_PER_PACKET];  // Split buffers for each mic
 
 // ====== Data and time variables ======
 int data_send = 0;
