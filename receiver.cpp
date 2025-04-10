@@ -7,6 +7,8 @@
 #include <sys/socket.h> // For socket functions
 #include <unistd.h>     // For close()
 
+#include "BeamFormer.h"
+
 #define MIC_AMOUNT 4
 #define RAW_MIC_LENGTH 360
 #define MIC_LENGTH 120
@@ -20,9 +22,9 @@ void handle_sigint(int sig) {
   exit(0);
 }
 
-void process_mic(char* data, size_t n) {
+std::vector<std::vector<int32_t>> process_mic(char* data, size_t n) {
     if (!(data[0] == 'A' && data[1] == 'U' && data[2] == 'D' && data[3] == 'I')){
-        return;
+        return {};
     }
     char seq = data[4];
 
@@ -42,10 +44,12 @@ void process_mic(char* data, size_t n) {
     }
     free(raw_data);
 
-    int32_t** mic_data = (int32_t**) malloc(MIC_AMOUNT * sizeof(int32_t*));
-    for (int i = 0; i < MIC_AMOUNT; i++) {
-        mic_data[i] = (int32_t*) malloc(MIC_LENGTH * sizeof(int32_t*));
-    }
+    // int32_t** mic_data = (int32_t**) malloc(MIC_AMOUNT * sizeof(int32_t*));
+    // for (int i = 0; i < MIC_AMOUNT; i++) {
+    //     mic_data[i] = (int32_t*) malloc(MIC_LENGTH * sizeof(int32_t*));
+    // }
+
+    std::vector<std::vector<int32_t>> mic_data(MIC_AMOUNT, std::vector<int32_t>(MIC_LENGTH));
 
     for(int j = 0; j < MIC_AMOUNT; j++) {
         char* rmd = raw_mic_data[j];
@@ -61,26 +65,28 @@ void process_mic(char* data, size_t n) {
     free(raw_mic_data);
 
 
-    for(int j = 0; j < MIC_AMOUNT; j++) {
-        std::cout << j << ": [";
-        for(int i = 0; i < MIC_LENGTH-1; i++) {
-            std::cout << mic_data[j][i] << ", ";
-        }
-        std::cout << mic_data[j][MIC_LENGTH-1] << "]" << std::endl;
-    }
+    // for(int j = 0; j < MIC_AMOUNT; j++) {
+    //     std::cout << j << ": [";
+    //     for(int i = 0; i < MIC_LENGTH-1; i++) {
+    //         std::cout << mic_data[j][i] << ", ";
+    //     }
+    //     std::cout << mic_data[j][MIC_LENGTH-1] << "]" << std::endl;
+    // }
     
 
-    for(int i = 0; i < MIC_AMOUNT; i++) {
-        free(mic_data[i]);
-    }
-    free(mic_data);
-    return;
+    // for(int i = 0; i < MIC_AMOUNT; i++) {
+    //     free(mic_data[i]);
+    // }
+    // free(mic_data);
+    return mic_data;
 }
 
 int main() {
   struct sockaddr_in server_addr, client_addr;
   char buffer[2048];
   socklen_t addr_len = sizeof(client_addr);
+
+  Beamformer beamer = Beamformer(32000, 0.0);
 
   // Set up the signal handler for Ctrl+C (SIGINT)
   signal(SIGINT, handle_sigint);
@@ -121,7 +127,7 @@ int main() {
     buffer[n] = '\0'; // Null-terminate the received data
 
     // Print the received message
-    process_mic(buffer, n);
+    beamer.run(process_mic(buffer, n));
     // std::cout << "C++ server received: " << buffer << std::endl;
   }
 
