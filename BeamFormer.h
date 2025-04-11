@@ -12,6 +12,7 @@ public:
     // Constants
     const double SPEED_OF_SOUND = 343.0; // m/s
     const double MIC_DISTANCE = 0.04;    // 4 cm between mics
+    double M_pi = 3.14159265358979323846;
     double angle = 0;
     int sampleRate = 32000;
     int filter_length = 5;
