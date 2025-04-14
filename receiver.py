@@ -67,4 +67,4 @@ while True:
         axs[i].relim()
         axs[i].autoscale_view()
 
-    plt.pause(0.001)  # Allow the plot to update
+    plt.pause(0.01)  # Allow the plot to update
