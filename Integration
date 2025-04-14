@@ -1,0 +1,179 @@
+import os
+import urllib.request
+import zipfile
+import numpy as np
+import json
+import queue
+import threading
+import socket
+from vosk import Model, KaldiRecognizer
+
+
+class VoskUdpSTT:
+    def __init__(self):
+        # STT Configuration
+        self.sample_rate = 22000
+        self.channels = 1
+        self.model_path = "vosk-model-en-us-0.22"
+        self.ensure_model()
+
+        self.model = Model(self.model_path)
+        self.recognizer = KaldiRecognizer(self.model, self.sample_rate)
+        self.recognizer.SetWords(True)
+
+        # Queues for processing
+        self.audio_queue = queue.Queue()
+        self.text_queue = queue.Queue()
+
+        # Text processing variables
+        self.partial_text = ""
+        self.final_text = ""
+        self.last_printed_text = ""  # Track last printed text to avoid duplication
+        self.max_line_length = 100
+        self.running = True
+
+        # UDP configuration for receiving audio
+        self.UDP_RX_IP = "0.0.0.0"
+        self.UDP_RX_PORT = 3333
+        self.N_SAMPLES = 120
+        self.BYTES_PER_SAMPLE = 3
+
+        # UDP configuration for sending text
+        self.UDP_TX_PORT = 3334
+        self.ESP32_IP = None  # Will be set from incoming packet source
+
+        # Create UDP socket for sending text
+        self.tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print("UDP sockets initialized")
+
+    def ensure_model(self):
+        if not os.path.exists(self.model_path):
+            print("Downloading Vosk model...")
+            url = "https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip"
+            urllib.request.urlretrieve(url, "model.zip")
+            with zipfile.ZipFile("model.zip", "r") as zip_ref:
+                zip_ref.extractall(".")
+            os.remove("model.zip")
+            print("Model downloaded and extracted.")
+
+    def decode_24bit_to_float(self, b):
+        """Converts 3 bytes (little endian) to a float32 sample."""
+        val = b[2] << 16 | b[1] << 8 | b[0]
+        if val & 0x800000:  # Sign bit set
+            val -= 0x1000000  # Convert to signed 24-bit
+        return val / (2 ** 23)
+
+    def udp_receiver(self):
+        """Receives UDP audio packets and processes them for STT"""
+        rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rx_sock.bind((self.UDP_RX_IP, self.UDP_RX_PORT))
+        print(f"🎙️ Listening for audio on {self.UDP_RX_IP}:{self.UDP_RX_PORT}")
+
+        while self.running:
+            try:
+                data, addr = rx_sock.recvfrom(2048)
+
+                # Store the ESP32's IP address for sending responses
+                # We only need to do this once, but it's harmless to update it each time
+                self.ESP32_IP = addr[0]
+
+                # Check for valid audio packet
+                if len(data) < 5 or data[0:4] != b"AUDI":
+                    continue
+
+                raw_data = data[5:]
+                if len(raw_data) != 1 + (self.N_SAMPLES * self.BYTES_PER_SAMPLE):
+                    continue
+
+                mic_raw = raw_data[1:]
+
+                # Convert 24-bit PCM to float32
+                samples = np.zeros(self.N_SAMPLES, dtype=np.float32)
+                for i in range(self.N_SAMPLES):
+                    idx = i * 3
+                    s = mic_raw[idx:idx + 3]
+                    samples[i] = self.decode_24bit_to_float(s)
+
+                samples *= 20
+                # Convert to PCM 16-bit for Vosk (which it expects)
+                audio_bytes = (samples * 32767).astype(np.int16).tobytes()
+                self.audio_queue.put(audio_bytes)
+
+            except Exception as e:
+                print(f"UDP receiver error: {e}")
+                if not self.running:
+                    break
+
+    def process_audio(self):
+        """Process audio chunks from the queue and run through STT"""
+        while self.running:
+            try:
+                audio_bytes = self.audio_queue.get(timeout=0.1)
+
+                if self.recognizer.AcceptWaveform(audio_bytes):
+                    result = json.loads(self.recognizer.Result())
+                    if result.get("text"):
+                        new_text = result["text"]
+                        if new_text:
+                            self.final_text += " " + new_text
+                            self.text_queue.put(self.final_text.strip())
+                            self.final_text = ""
+                else:
+                    partial = json.loads(self.recognizer.PartialResult())
+                    if partial.get("partial"):
+                        current = partial["partial"].strip()
+                        full = (self.final_text + " " + current).strip()
+                        self.text_queue.put("\r" + full)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error in processing: {e}")
+
+    def print_text(self):
+        """Output recognized text and send to ESP32 via UDP if ESP32_IP is known"""
+        while self.running:
+            try:
+                text = self.text_queue.get(timeout=0.1)
+                if text.startswith("\r"):
+                    print(text, end="", flush=True)
+                else:
+                    print(text)
+
+                    # Send to ESP32 via UDP if we have its IP
+                    if self.ESP32_IP:
+                        try:
+                            self.tx_socket.sendto((text+" ").encode(), (self.ESP32_IP, self.UDP_TX_PORT))
+                            print(f"Sent text to ESP32 at {self.ESP32_IP}:{self.UDP_TX_PORT}")
+                        except Exception as e:
+                            print(f"Error sending to ESP32: {e}")
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error in printing: {e}")
+
+    def start(self):
+        """Start all processing threads"""
+        print("Vosk UDP-STT Initialized. Waiting for UDP audio...")
+
+        # Start processing threads
+        threading.Thread(target=self.udp_receiver, daemon=True).start()
+        threading.Thread(target=self.process_audio, daemon=True).start()
+        threading.Thread(target=self.print_text, daemon=True).start()
+
+        # Keep main thread alive until interrupted
+        try:
+            while self.running:
+                threading.Event().wait(1.0)
+        except KeyboardInterrupt:
+            print("Interrupted by user.")
+            self.running = False
+
+
+def main():
+    stt = VoskUdpSTT()
+    stt.start()
+
+
+if __name__ == "__main__":
+    main()
