@@ -6,8 +6,6 @@
 #include <iostream>
 #include <sys/socket.h> // For socket functions
 #include <unistd.h>     // For close()
-#include <fstream>
-#include <ctime>
 
 #include "BeamFormer.h"
 // #include "FrostBeamformer.hpp"
@@ -16,15 +14,12 @@
 #define RAW_MIC_LENGTH 360
 #define MIC_LENGTH 120
 
-int sockfd, sockfd1; // Socket file descriptor
-std::ofstream file("output.csv");
+int sockfd, sockfd1;
 
 void handle_sigint(int sig) {
   // Close the socket and exit
   close(sockfd);
   close(sockfd1);
-  file.close();
-  std::cout << "\nServer terminated gracefully" << std::endl;
   exit(0);
 }
 
@@ -43,6 +38,7 @@ std::vector<std::vector<int32_t>> process_mic(char* data, size_t n) {
         raw_mic_data[i] = (char*) malloc(RAW_MIC_LENGTH);
     }
 
+    // copy the audio chunks from each microphone from the packet
     uint16_t offset = 0;
     for(int i = 0; i < MIC_AMOUNT; i++) {
         memcpy(raw_mic_data[i], &raw_data[++offset], RAW_MIC_LENGTH);
@@ -50,13 +46,10 @@ std::vector<std::vector<int32_t>> process_mic(char* data, size_t n) {
     }
     free(raw_data);
 
-    // int32_t** mic_data = (int32_t**) malloc(MIC_AMOUNT * sizeof(int32_t*));
-    // for (int i = 0; i < MIC_AMOUNT; i++) {
-    //     mic_data[i] = (int32_t*) malloc(MIC_LENGTH * sizeof(int32_t*));
-    // }
 
     std::vector<std::vector<int32_t>> mic_data(MIC_AMOUNT, std::vector<int32_t>(MIC_LENGTH));
-
+  
+    // turn every three bytes into a single 24 bit integer
     for(int j = 0; j < MIC_AMOUNT; j++) {
         char* rmd = raw_mic_data[j];
         for(int i = 0; i < RAW_MIC_LENGTH; i += 3) {
@@ -69,21 +62,6 @@ std::vector<std::vector<int32_t>> process_mic(char* data, size_t n) {
         free(raw_mic_data[i]);
     }
     free(raw_mic_data);
-
-
-    // for(int j = 0; j < MIC_AMOUNT; j++) {
-    //     std::cout << j << ": [";
-    //     for(int i = 0; i < MIC_LENGTH-1; i++) {
-    //         std::cout << mic_data[j][i] << ", ";
-    //     }
-    //     std::cout << mic_data[j][MIC_LENGTH-1] << "]" << std::endl;
-    // }
-    
-
-    // for(int i = 0; i < MIC_AMOUNT; i++) {
-    //     free(mic_data[i]);
-    // }
-    // free(mic_data);
     return mic_data;
 }
 
@@ -97,8 +75,7 @@ int main() {
   char buffer[2048];
   socklen_t addr_len = sizeof(client_addr);
   
-  Beamformer beamer = Beamformer(32000, 0.0);
-  // FrostBeamformer beamer;
+  Beamformer beamer = Beamformer(96000, 0.0);
 
   // Set up the signal handler for Ctrl+C (SIGINT)
   signal(SIGINT, handle_sigint);
@@ -127,6 +104,7 @@ int main() {
 
   std::cout << "C++ UDP server listening on port 3333" << std::endl;
 
+  // matlab socket
   int sockfd1 = socket(AF_INET, SOCK_STREAM, 0);
   sockaddr_in serv_addr{};
   serv_addr.sin_family = AF_INET;
@@ -140,7 +118,6 @@ int main() {
 
 
   std::vector<int32_t> output;
-  std::time_t start = std::time(nullptr);
   std::vector<int32_t> tosend;
   while (true) {
     // Receive a message from a client
@@ -153,29 +130,18 @@ int main() {
 
     buffer[n] = '\0'; // Null-terminate the received data
 
-    // Print the received message
-    output = beamer.run(process_mic(buffer, n));
+    // convert the received data into the four microphone streams, and run the beamformer on it
+    output = beamer.beamform(process_mic(buffer, n));
+
+    // send the output to a socket to be plotted in matlab
     if (tosend.size() > 2000) {
       send_audio_samples(tosend, sockfd1);
       tosend.clear();
     } else {
       tosend.insert( tosend.end(), output.begin(), output.end() );
     }
-    // output = beamformer.filter(process_mic(buffer, n));
-    
-    // for (const auto& sample : output) {
-    //     file << sample << "\n";
-    // }
-    // if (std::time(nullptr) - start >= 5) {
-    //   handle_sigint(0);
-    //   return 0;
-    // }
-    // return 0;
-
-    // std::cout << "C++ server received: " << buffer << std::endl;
   }
 
-  // Close the socket (unreachable code in this example)
   close(sockfd);
 
   return 0;

@@ -6,33 +6,34 @@
 // Square microphones
 // ====== I2S Configuration ======
 // I2S0 (Stereo: Mics 1 & 2)
-// #define I2S_SCK_0  15
-// #define I2S_WS_0   5
-// #define I2S_SD_0   22
+#define I2S_SCK_0  15
+#define I2S_WS_0   5
+#define I2S_SD_0   22
 
-// // I2S1 (Stereo: Mics 3 & 4)
-// #define I2S_SCK_1  2
-// #define I2S_WS_1   18
-// #define I2S_SD_1   23
+// I2S1 (Stereo: Mics 3 & 4)
+#define I2S_SCK_1  2
+#define I2S_WS_1   18
+#define I2S_SD_1   23
 
 
 // Round microphones
 // ====== I2S Configuration ======
 // I2S0 (Stereo: Mics 1 & 2)
-#define I2S_SCK_0  32
-#define I2S_WS_0   33
-#define I2S_SD_0   27
+// #define I2S_SCK_0  32
+// #define I2S_WS_0   33
+// #define I2S_SD_0   27
 
-// I2S1 (Stereo: Mics 3 & 4)
-#define I2S_SCK_1  19
-#define I2S_WS_1   18
-#define I2S_SD_1   5
+// // I2S1 (Stereo: Mics 3 & 4)
+// #define I2S_SCK_1  19
+// #define I2S_WS_1   18
+// #define I2S_SD_1   5
 
 
-#define SAMPLE_RATE     32000     // 16kHz bandwidth
+#define SAMPLE_RATE     96000     // 16kHz bandwidth
 #define SAMPLES_PER_PACKET 120
 #define MIC_BYTES_PER_PACKET SAMPLES_PER_PACKET*3
 #define BUFFER_SIZE     SAMPLES_PER_PACKET*8      // Must be multiple of 6 (24b stereo frame)
+#define BUFFER_SIZE8    BUFFER_SIZE/4      // Must be multiple of 6 (24b stereo frame)
 
 // ====== WiFi Configuration ======
 const char* ssid = "CaptionGlasses";
@@ -43,38 +44,38 @@ const uint16_t udp_port = 3333;
 static uint8_t seq = 0;
 
 // Buffers
-int32_t buffer0[BUFFER_SIZE];  // I2S0 (Mics 1 & 2)
-int32_t buffer1[BUFFER_SIZE];  // I2S1 (Mics 3 & 4)
-int32_t extra_buffer0[2*BUFFER_SIZE]; // piece of shit delay thing
-int buffer0_delay = 2;
+int32_t buffer0[BUFFER_SIZE8];  // I2S0 (Mics 1 & 2)
+int32_t buffer1[BUFFER_SIZE8];  // I2S1 (Mics 3 & 4)
+int32_t extra_buffer[BUFFER_SIZE8*2]; // history buffer
+int32_t buffer_buffer[BUFFER_SIZE8];
+int buffer_delay = 4;
 uint8_t micBuffers[4][MIC_BYTES_PER_PACKET];  // Split buffers for each mic
 
 // ====== Data and time variables ======
 int data_send = 0;
 unsigned long int timeddd = 0;
-// uint32_t headroom_time = 0;
 
 void setupI2S() {
   i2s_config_t i2s_config = {
     .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_24BIT,  // 24-bit mode
-    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // Stereo
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_24BIT,
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 8,        // More buffers for stability
-    .dma_buf_len = BUFFER_SIZE,        // Smaller buffers for lower latency
-    .use_apll = true           // Better clock stability
+    .dma_buf_count = 8,
+    .dma_buf_len = BUFFER_SIZE,
+    .use_apll = true
   };
 
     i2s_config_t i2s_config1 = {
     .mode = i2s_mode_t(I2S_MODE_SLAVE | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_24BIT,  // 24-bit mode
-    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // Stereo
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_24BIT,
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 8,        // More buffers for stability
-    .dma_buf_len = BUFFER_SIZE,        // Smaller buffers for lower latency
-    .use_apll = true           // Better clock stability.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 8,
+    .dma_buf_len = BUFFER_SIZE,
+    .use_apll = true
   };
 
   // I2S0 Setup (Mics 1 & 2)
@@ -113,6 +114,7 @@ void setupUDP() {
   Serial.println("[UDP] UDP Started");
 }
 
+// split the microphone data buffer into two streams of 8 bit length, holding the 24 bit samples in three consecutive values
 void splitBuffer(const int32_t* stereoBuffer, uint8_t* left, uint8_t* right, int numsamples) {
     for (size_t i = 0; i < numsamples; i += 2) {
       size_t j = 3*(i/2);
@@ -128,28 +130,25 @@ void splitBuffer(const int32_t* stereoBuffer, uint8_t* left, uint8_t* right, int
 void captureAndStream() {
   size_t bytesRead0, bytesRead1;
 
-  // Read from both I2S peripherals (blocking)
-  // uint32_t before = micros();
+  // Read from both i2s microphones
+  memcpy(extra_buffer, extra_buffer + BUFFER_SIZE8, BUFFER_SIZE * sizeof(int32_t));
   esp_err_t err0 = i2s_read(I2S_NUM_0, buffer0, BUFFER_SIZE, &bytesRead0, portMAX_DELAY);
   esp_err_t err1 = i2s_read(I2S_NUM_1, buffer1, BUFFER_SIZE, &bytesRead1, portMAX_DELAY);
-  // uint32_t after = micros();
-  // Serial.printf("rest: %ld, i2s: %ld\n", before - headroom_time, after - before);
-  // headroom_time = after;
+
    if (err0 != ESP_OK || err1 != ESP_OK || bytesRead0 != BUFFER_SIZE || bytesRead1 != BUFFER_SIZE) {
     Serial.println("I2S Read Error!");
     return;
   }
-  // memmove(extra_buffer0, extra_buffer0 + BUFFER_SIZE, BUFFER_SIZE);
 
-  // memcpy(extra_buffer0 + BUFFER_SIZE, buffer0, BUFFER_SIZE);
-
-  // int32_t bufferTEMP[BUFFER_SIZE];
-
-  // memcpy(bufferTEMP, extra_buffer0 + BUFFER_SIZE - buffer0_delay, BUFFER_SIZE);
 
   // Split stereo buffers into individual mic streams
   splitBuffer(buffer0, micBuffers[0], micBuffers[1], bytesRead0 / sizeof(int32_t));  // Mics 1 & 2
-  splitBuffer(buffer1, micBuffers[2], micBuffers[3], bytesRead1 / sizeof(int32_t));  // Mics 3 & 4
+  
+  // apply a sample delay to the second microphone pair due to i2s imperfect synchronization
+  memcpy(extra_buffer + BUFFER_SIZE8, buffer1, BUFFER_SIZE8 * sizeof(int32_t));
+  memcpy(buffer_buffer, extra_buffer + BUFFER_SIZE8 - buffer_delay, BUFFER_SIZE8 * sizeof(int32_t));
+
+  splitBuffer(buffer_buffer, micBuffers[2], micBuffers[3], bytesRead1 / sizeof(int32_t));  // Mics 3 & 4
 
   // Send via UDP
   udp.beginPacket(laptop_ip, udp_port);
@@ -179,11 +178,10 @@ void captureAndStream() {
 // ====== Main Program ======
 void setup() {
   Serial.begin(115200);
-  setupWiFi();  // Your existing WiFi setup
+  setupWiFi();
   setupI2S();
   udp.begin(udp_port);
   timeddd = micros();
-  // headroom_time = timeddd;
 }
 
 void loop() {
@@ -195,5 +193,13 @@ void loop() {
     Serial.println(data_send);
     data_send = 0;
     timeddd = millis();
+  }
+
+  // read and set buffer delay from serial console
+  if (Serial.available() > 0) {
+    buffer_delay = Serial.parseInt();
+    Serial.print("New buffer_delay: ");
+    Serial.println(buffer_delay);
+    Serial.read();
   }
 }

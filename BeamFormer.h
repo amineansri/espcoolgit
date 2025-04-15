@@ -11,9 +11,9 @@ class Beamformer {
 public:
     // Constants
     const double SPEED_OF_SOUND = 343.3; // m/s
-    const double MIC_DISTANCE = 0.04;    // 4 cm between mics
+    const double MIC_DISTANCE = 0.2;    // 20 cm between mics
     double angle = 0;
-    int sampleRate = 32000;
+    int sampleRate = 96000;
     int filter_length = 11;
     int numMics = 4;
     const double TARGET_DISTANCE = 1.5;
@@ -28,7 +28,7 @@ public:
         delays = std::vector<double>(numMics);
         for (int m = 0; m < numMics; ++m) {
             weights[m][filter_length / 2] = 1.0 / numMics; // Initialize to DS beamformer
-            
+            // delay calculation per microphone
             delays[m] = (0.25 * sampleRate * (cos(atan(TARGET_DISTANCE / ((MIC_DISTANCE/2) + MIC_DISTANCE*(m-(numMics/2))))))) / SPEED_OF_SOUND;
             std::cout << delays[m] << std::endl;
         }
@@ -36,12 +36,7 @@ public:
 
     // Delay-and-sum beamforming
     std::vector<int32_t> beamform(
-        const std::vector<std::vector<int32_t>>& micSignals,
-        double sampleRate,
-        double angleDeg
-    );
-    std::vector<int32_t> run(
-        const std::vector<std::vector<int32_t>> micSignals
+        const std::vector<std::vector<int32_t>>& micSignals
     );
 
     int32_t interpolate(std::vector<int32_t> signal, double delay);

@@ -6,15 +6,18 @@ disp("Waiting for connection...");
 figure;
 h = animatedline;
 % axis([0 1024 -2e4 2e4]);
-fs = 32000;
+fs = 96000;
 xlim([10,2000]);
+% samples = [];
 while true
     if t.NumBytesAvailable > 0
         data = read(t, t.NumBytesAvailable, "int32");
         f = linspace(-fs/2,fs/2,length(data));
         clearpoints(h);
-        % addpoints(h, f, abs(fftshift(fft(data))));
-        addpoints(h, f, data);
+        s = abs(fftshift(fft(data)));
+        addpoints(h, f, s);
+        % samples(end+1) = s;
+        % addpoints(h, f, data);
         drawnow limitrate;
         sound(data - mean(data), fs);
     else

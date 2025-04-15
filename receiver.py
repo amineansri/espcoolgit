@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 N_SAMPLES = 120  # number of samples per mic (from each UDP packet)
 x = np.arange(N_SAMPLES*2)
 
-fig, axs = plt.subplots(4, 1, figsize=(10, 6), sharex=True)
+fig, axs = plt.subplots(5, 1, figsize=(10, 6), sharex=True)
 lines = [ax.plot(x, np.zeros(N_SAMPLES*2))[0] for ax in axs]
 [ax.set_ylabel(f"Mic {i+1}") for i, ax in enumerate(axs)]
 axs[-1].set_xlabel("Sample index")
@@ -62,6 +62,10 @@ while True:
 
     # print(mic_data)
         # Update plots
+    lines[4].set_ydata(np.subtract(np.array(mic_data[1]), np.array(mic_data[2])))
+    axs[4].relim()
+    axs[4].autoscale_view()
+    # print(np.subtract(np.array(mic_data[1]), np.array(mic_data[2])).tolist())
     for i in range(MIC_AMOUNT):
         lines[i].set_ydata(mic_data[i])
         axs[i].relim()
